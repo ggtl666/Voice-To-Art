@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>图片上传到Canvas</title>
+  <script async src="https://docs.opencv.org/4.5.5/opencv.js" onload="onOpenCvReady();"></script>
+  <script>
+    function onOpenCvReady() {
+      console.log('OpenCV.js is ready');
+    }
+  </script>
+</head>
+<body>
+  <input type="file" id="inputImage" accept="image/*" style="font-size:30px; padding:10px; background-color:#e3d112">
+  <canvas id="myCanvas" width="1000" height="800" style="border:1px solid sienna;"></canvas>
+ <div id="output" style="font-family:monospace;"></div>
+  <button onclick="openModal()" style="font-size: 20px; margin: 10px;position:absolute;right:20px;top:50px">DEMO LOOK HOW IT DRAWS</button>
+ 
+<div id="myModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5);">
+  <div style="background:white; padding:30px; max-width:400px; margin:100px auto; border-radius:8px; text-align:center;">
+    <h2>Only draw lines</h2>
+    
+    <button onclick="clearAndDraw(); closeModal();" style="padding:10px 20px;">Start drawing</button>
+    <button onclick="closeModal()" style="margin-left:10px; padding:10px 20px;"></button>
+  </div>
+</div>
+
+
+  <script>
+    let input = document.getElementById("inputImage");
+    let canvas = document.getElementById("myCanvas");
+    let ctx = canvas.getContext("2d");
+    let lines = [];
+
+    input.addEventListener("change", function(event) {
+      let file = event.target.files[0];
+      if (!file) return;
+      lines = [];
+
+      let reader = new FileReader();
+      reader.onload = function(e) {
+        let img = new Image();
+        img.src = e.target.result;
+
+        img.onload = function() {
+          ctx.fillStyle = "white";
+          ctx.fillRect(0,0,canvas.width, canvas.height);
+          ctx.drawImage(img, 50, 50, 900, 700);
+
+          let src = cv.imread(canvas);
+          let gray = new cv.Mat();
+          cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+          let edges = new cv.Mat();
+          cv.Canny(gray, edges, 50, 150);
+
+          let contours = new cv.MatVector();
+          let hierarchy = new cv.Mat();
+          cv.findContours(edges, contours, hierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
+
+          let contourPoints = [];
+          for (let j=0; j < contours.size();j++){
+            let cnt = contours.get(j);
+            for (let i = 0; i < cnt.rows; i++) {
+              let pt = cnt.intPtr(i);
+              contourPoints.push({ x: pt[0], y: pt[1] });
+            }
+          }
+
+          contourPoints.forEach(p => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 2, 0, 2 * Math.PI);
+            ctx.fillStyle = "red";
+            ctx.fill();
+          });
+
+          function fitLines(points, groupSize = 10) {
+   lines = [];
+
+  for (let i = 0; i < points.length - groupSize; i += groupSize) {
+    let group = points.slice(i, i + groupSize);
+
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    for (let p of group) {
+      sumX += p.x;
+      sumY += p.y;
+      sumXY += p.x * p.y;
+      sumXX += p.x * p.x;
+    }
+
+    let n = group.length;
+    let m = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    let c = (sumY - m * sumX) / n; //来自线性回归公式的最小二乘法计算，来取得拟合线段的斜率和截距，但是原理不懂
+
+    lines.push({
+      m: m,
+      c: c,
+      from: group[0].x,
+      to: group[group.length - 1].x
+    });
+  }
+
+  return lines;
+}
+           lines = fitLines(contourPoints);
+
+let output = document.getElementById("output");
+output.innerHTML = lines.map(line =>
+  `drawLine(${Math.round(line.from)}, ${Math.round(line.m * line.from + line.c)}, ${Math.round(line.to)}, ${Math.round(line.m * line.to + line.c)});`
+).join("<br>");
+
+
+          src.delete();
+          gray.delete();
+          edges.delete();
+          contours.delete();
+          hierarchy.delete();
+        };
+      };
+      reader.readAsDataURL(file);
+    });
+
+function openModal() {
+  document.getElementById('myModal').style.display = 'block';
+}
+
+function closeModal() {
+  document.getElementById('myModal').style.display = 'none';
+}
+
+function clearAndDraw() {
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawLinesAnimated(lines, ctx, 5); 
+}
+
+function drawLinesAnimated(lines, ctx, delay = 5) {
+  let currentLine = 0;
+  let currentX = lines[0].from;
+
+  function drawStep() {
+    if (currentLine >= lines.length) return;
+
+    let line = lines[currentLine];
+    let x1 = currentX;
+    let x2 = x1 + 1;
+
+    if (x2 > line.to) {
+      currentLine++;
+      if (currentLine < lines.length) {
+        currentX = lines[currentLine].from;
+        requestAnimationFrame(drawStep);
+      }
+      return;
+    }
+
+    let y1 = line.m * x1 + line.c;
+    let y2 = line.m * x2 + line.c;
+
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = "blue";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    currentX++;
+    setTimeout(() => requestAnimationFrame(drawStep), delay);
+  }
+
+  drawStep();
+}
+  </script>
+</body>
+</html>
